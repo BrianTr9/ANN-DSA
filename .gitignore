@@ -1,0 +1,21 @@
+# Build artifacts
+obj/
+*.o
+*.d
+
+# Compiled binary
+Code/program
+
+# IDE & editor
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Model checkpoints
+models/*/checkpoint-*/
+
+# Virtual environments
+venv/
+.env/
