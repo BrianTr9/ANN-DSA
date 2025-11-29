@@ -35,7 +35,7 @@ This repository bundles a compact ANN library, dataset loaders, demos and a shel
 Core data structure implementations (lists, stacks/queues, heaps, hash maps, sorting, trees) and dataset creation for MLP inference.
 
 **Assignment-2 (ANN Training Pipeline):**  
-HashMap and Heap implementations (TASK-1), complete MLP training with layers, loss functions, metrics, three optimizers (SGD/Adagrad/Adam with param groups), and checkpoint I/O (TASK-2).
+HashMap and Heap implementations (TASK-1), complete MLP training with layers, loss functions, metrics, three optimizers (SGD/Adagrad/Adam with param groups), DataLoader for batch processing, and checkpoint I/O (TASK-2).
 
 **Assignment-3 (Graphs & Computational Graphs):**  
 Graph data structures (directed/undirected via adjacency lists) and topological sorting algorithms (DFS/BFS) for computational graph traversal during backpropagation.
