@@ -198,9 +198,9 @@ Heap<T>& Heap<T>::operator=(const Heap<T>& heap){
 template<class T>
 Heap<T>::~Heap(){
     //YOUR CODE IS HERE
-    delete []elements;
-    //removeInternalData();
-
+    // Frees the user's data (if deleteUserData was given) and the array.
+    // (it used to be 'delete []elements' only => deleteUserData was never called)
+    removeInternalData();
 }
 
 template<class T>
@@ -231,7 +231,7 @@ template<class T>
 T Heap<T>::pop(){
     //YOUR CODE IS HERE
     if (count == 0) {
-        throw std::underflow_error("Calling to peek with the empty heap.");
+        throw std::underflow_error("Calling to pop with the empty heap.");
     }
 
     T root = elements[0];
@@ -275,7 +275,13 @@ void Heap<T>::remove(T item, void (*removeItemData)(T)){
 
     elements[foundIdx] = elements[count - 1];
     count--;
-    reheapDown(foundIdx);
+    if (foundIdx < count) {
+        // The element moved into the hole may be smaller than its new parent
+        // (=> reheapUp) or larger than its new children (=> reheapDown).
+        // Only reheapDown was called, which could leave the heap invalid.
+        reheapUp(foundIdx);
+        reheapDown(foundIdx);
+    }
 }
 
 template<class T>
@@ -345,17 +351,16 @@ void Heap<T>::ensureCapacity(int minCapacity){
     if(minCapacity >= capacity){
         //re-allocate 
         int old_capacity = capacity;
-        capacity = old_capacity + (old_capacity >> 2);
-        try{
-            T* new_data = new T[capacity];
-            //OLD: memcpy(new_data, elements, capacity*sizeof(T));
-            memcpy(new_data, elements, old_capacity*sizeof(T));
-            delete []elements;
-            elements = new_data;
-        }
-        catch(std::bad_alloc e){
-            e.what();
-        }
+        int new_capacity = old_capacity + (old_capacity >> 2);
+        if(new_capacity <= minCapacity) new_capacity = minCapacity + 1; //small capacities / big requests
+        // If new[] throws (std::bad_alloc), the heap is left untouched and the
+        // exception reaches the caller (it used to be swallowed => out-of-bounds writes).
+        T* new_data = new T[new_capacity];
+        // element-wise copy: memcpy is undefined behaviour for non-trivially-copyable T (e.g. std::string)
+        for(int idx=0; idx < count; idx++) new_data[idx] = elements[idx];
+        delete []elements;
+        elements = new_data;
+        capacity = new_capacity;
     }
 }
 
@@ -402,8 +407,9 @@ template<class T>
 int Heap<T>::getItem(T item){
     //YOUR CODE IS HERE
     for (int i = 0; i < count; i++) {
-        if (comparator!=0 && comparator(elements[i], item) == 0) {
-            return i;
+        if (comparator != 0) {
+            // with a comparator, T may not even support operator==
+            if (comparator(elements[i], item) == 0) return i;
         }
         else if (elements[i] == item) {
             return i;
