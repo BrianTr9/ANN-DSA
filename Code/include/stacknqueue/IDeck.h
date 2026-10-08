@@ -20,14 +20,17 @@ using namespace std;
 class Underflow: public std::exception{
 private:
     string desc;
+    string message; //the buffer returned by what() must outlive the call
 public:
     Underflow(string desc){
         this->desc = desc;
-    }
-    const char * what () const throw (){
         stringstream os;
         os << "Underflow: " << this->desc;
-        return os.str().c_str();
+        this->message = os.str();
+    }
+    // (it used to return os.str().c_str() of a local stringstream => dangling pointer)
+    const char * what () const throw (){
+        return message.c_str();
     }
 };
 

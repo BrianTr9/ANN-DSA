@@ -30,7 +30,9 @@ protected:
 public:
     Queue(
             void (*deleteUserData)(DLinkedList<T>*)=0, 
-            bool (*itemEqual)(T&, T&)=0){
+            bool (*itemEqual)(T&, T&)=0)
+            : list(deleteUserData, itemEqual) //forward the callbacks: they were stored but never used
+    {
         this->itemEqual = itemEqual;
         this->deleteUserData = deleteUserData;
     }
