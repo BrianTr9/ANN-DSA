@@ -24,28 +24,33 @@ using namespace std;
 class VertexNotFoundException: public std::exception{
 private:
     string vertex;
+    string message; //the buffer returned by what() must outlive the call
 public:
     VertexNotFoundException(string vertex){
         this->vertex = vertex;
-    }
-    const char * what () const throw (){
         stringstream os;
         os << "Vertex (" << this->vertex << "): is not found";
-        return os.str().c_str();
+        this->message = os.str();
+    }
+    // (it used to return os.str().c_str() of a local stringstream => dangling pointer)
+    const char * what () const throw (){
+        return message.c_str();
     }
 };
 
 class EdgeNotFoundException: public std::exception{
 private:
     string edge;
+    string message; //the buffer returned by what() must outlive the call
 public:
     EdgeNotFoundException(string edge){
         this->edge = edge;
+        stringstream os;
+        os << "Edge (" << this->edge << "): is not found";
+        this->message = os.str();
     }
     const char * what () const throw (){
-        stringstream os;
-        os << "Edge (" << edge << "): is not found";
-        return os.str().c_str();
+        return message.c_str();
     }
 };
 

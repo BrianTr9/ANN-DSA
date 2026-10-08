@@ -43,10 +43,10 @@ public:
         typename AbstractGraph<T>::VertexNode* toNode = this->getVertexNode(to);
 
         if (fromNode == nullptr) {
-            throw VertexNotFoundException(this->vertex2str(from));
+            throw VertexNotFoundException(this->vertexToString(from));
         }
         if (toNode == nullptr) {
-            throw VertexNotFoundException(this->vertex2str(to));
+            throw VertexNotFoundException(this->vertexToString(to));
         }
 
         fromNode->connect(toNode, weight);
@@ -58,15 +58,15 @@ public:
         typename AbstractGraph<T>::VertexNode* toNode = this->getVertexNode(to);
 
         if (fromNode == nullptr) {
-            throw VertexNotFoundException(this->vertex2str(from));
+            throw VertexNotFoundException(this->vertexToString(from));
         }
         if (toNode == nullptr) {
-            throw VertexNotFoundException(this->vertex2str(to));
+            throw VertexNotFoundException(this->vertexToString(to));
         }
 
         typename AbstractGraph<T>::Edge* edge = fromNode->getEdge(toNode);
         if (edge == nullptr) {
-            throw EdgeNotFoundException("E(" + this->vertex2str(from) + "," + this->vertex2str(to) + ")");
+            throw EdgeNotFoundException("E(" + this->vertexToString(from) + "," + this->vertexToString(to) + ")");
         }
 
         fromNode->removeTo(toNode);
@@ -76,7 +76,7 @@ public:
         //TODO
         typename AbstractGraph<T>::VertexNode* node = this->getVertexNode(vertex);
         if (node == nullptr) {
-            throw VertexNotFoundException(this->vertex2str(vertex));
+            throw VertexNotFoundException(this->vertexToString(vertex));
         }
 
         typename DLinkedList<typename AbstractGraph<T>::VertexNode*>::Iterator it = this->nodeList.begin();

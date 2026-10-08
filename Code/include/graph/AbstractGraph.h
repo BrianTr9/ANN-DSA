@@ -41,20 +41,32 @@ protected:
         typename DLinkedList<VertexNode*>::Iterator it = nodeList.begin();
         while(it != nodeList.end()){
             VertexNode* node = *it;
-            if(vertexEQ(node->vertex, vertex) ) return node;
+            // vertexEQ is optional (default = 0): fall back on operator==
+            // (calling a null function pointer used to crash here)
+            if(vertexEQ != 0 ? vertexEQ(node->vertex, vertex) : (node->vertex == vertex)) return node;
             it++;
         }
         return 0;
     }
+    /*
+     * vertexToString: string of a vertex, used in exception messages.
+     * vertex2str is optional (default = 0): fall back on operator<<
+     */
+    string vertexToString(T& vertex){
+        if(this->vertex2str != 0) return this->vertex2str(vertex);
+        stringstream os;
+        os << vertex;
+        return os.str();
+    }
     string vertex2Str(VertexNode& node){
-        return vertex2str(node.vertex);
+        return vertexToString(node.vertex);
     }
     string edge2Str(Edge& edge){
         stringstream os;
         os << "E("
-                << vertex2str(edge.from->vertex)
+                << vertexToString(edge.from->vertex)
                 << ","
-                << vertex2str(edge.to->vertex)
+                << vertexToString(edge.to->vertex)
                 << ")";
         return os.str();
     }
@@ -66,8 +78,16 @@ public:
         
         this->vertexEQ = vertexEQ;
         this->vertex2str = vertex2str;
+        // The graph owns its VertexNode objects: free them (and, through VertexNode's
+        // adjacency list, their edges) when the graph is cleared/destroyed.
+        // They used to leak.
+        this->nodeList.setDeleteUserDataPtr(&DLinkedList<VertexNode*>::free);
     }
     virtual ~AbstractGraph(){}
+
+    // The graph owns raw VertexNode pointers => a (shallow) copy would free them twice.
+    AbstractGraph(const AbstractGraph<T>&) = delete;
+    AbstractGraph<T>& operator=(const AbstractGraph<T>&) = delete;
     
     typedef bool (*vertexEQFunc)(T&, T&);
     typedef string (*vertex2strFunc)(T&);
@@ -120,15 +140,15 @@ public:
         VertexNode* toNode = getVertexNode(to);
 
         if (fromNode == nullptr) {
-            throw VertexNotFoundException(vertex2str(from));
+            throw VertexNotFoundException(vertexToString(from));
         }
         if (toNode == nullptr) {
-            throw VertexNotFoundException(vertex2str(to));
+            throw VertexNotFoundException(vertexToString(to));
         }
 
         Edge* edge = fromNode->getEdge(toNode);
         if (edge == nullptr) {
-            throw EdgeNotFoundException("E(" + this->vertex2str(from) + "," + this->vertex2str(to) + ")");
+            throw EdgeNotFoundException("E(" + this->vertexToString(from) + "," + this->vertexToString(to) + ")");
         }
 
         return edge->weight;
@@ -137,7 +157,7 @@ public:
         //TODO
         VertexNode* fromNode = getVertexNode(from);
         if (fromNode == nullptr) {
-            throw VertexNotFoundException(vertex2str(from));
+            throw VertexNotFoundException(vertexToString(from));
         }
         return fromNode->getOutwardEdges();
     }
@@ -146,7 +166,7 @@ public:
         //TODO
         VertexNode* toNode = getVertexNode(to);
         if (toNode == nullptr) {
-            throw VertexNotFoundException(vertex2str(to));
+            throw VertexNotFoundException(vertexToString(to));
         }
         DLinkedList<T> inwardEdges;
         typename DLinkedList<VertexNode*>::Iterator it = nodeList.begin();
@@ -169,19 +189,14 @@ public:
     }
     virtual void clear(){
         //TODO
-        typename DLinkedList<VertexNode*>::Iterator it = nodeList.begin();
-        while(it != nodeList.end()){
-            VertexNode* node = *it;
-            node->adList.clear();
-            it++;
-        }
+        // nodeList.clear() deletes every VertexNode (free), whose destructor deletes its edges
         nodeList.clear();
     }
     virtual int inDegree(T vertex){
         //TODO
         VertexNode* node = getVertexNode(vertex);
         if (node == nullptr) {
-            throw VertexNotFoundException(vertex2str(vertex));
+            throw VertexNotFoundException(vertexToString(vertex));
         }
         return node->inDegree();
     }
@@ -189,7 +204,7 @@ public:
         //TODO
         VertexNode* node = getVertexNode(vertex);
         if (node == nullptr) {
-            throw VertexNotFoundException(vertex2str(vertex));
+            throw VertexNotFoundException(vertexToString(vertex));
         }
         return node->outDegree();
     }
@@ -210,10 +225,10 @@ public:
         VertexNode* toNode = getVertexNode(to);
 
         if (fromNode == nullptr) {
-            throw VertexNotFoundException(vertex2str(from));
+            throw VertexNotFoundException(vertexToString(from));
         }
         if (toNode == nullptr) {
-            throw VertexNotFoundException(vertex2str(to));
+            throw VertexNotFoundException(vertexToString(to));
         }
 
         return fromNode->getEdge(toNode) != nullptr;
@@ -291,7 +306,11 @@ public:
         string (*vertex2str)(T&);
         
     public:
-        VertexNode():adList(&DLinkedList<Edge*>::free, &Edge::edgeEQ){}
+        VertexNode():adList(&DLinkedList<Edge*>::free, &Edge::edgeEQ){
+            this->inDegree_ = this->outDegree_ = 0;
+            this->vertexEQ = 0;
+            this->vertex2str = 0;
+        }
         VertexNode(T vertex, bool (*vertexEQ)(T&, T&), string (*vertex2str)(T&))
             :adList(&DLinkedList<Edge*>::free, &Edge::edgeEQ){
             this->vertex = vertex;
@@ -413,7 +432,11 @@ public:
         friend class AbstractGraph;
         
     public:
-        Edge(){}
+        Edge(){
+            this->from = 0;
+            this->to = 0;
+            this->weight = 0;
+        }
         Edge(VertexNode* from, VertexNode* to, float weight=0){
             this->from = from;
             this->to = to;
