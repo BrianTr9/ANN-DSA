@@ -1,273 +1,159 @@
+# ANN-DSA — A Neural-Network Library and Its Data Structures, in C++17
 
-# DSA — Assignment Suite (C++): Neural Networks, Data Structures & Algorithms
+A small deep-learning library written **from scratch in C++17** — and, underneath it, the
+data structures it runs on (linked/array lists, hash map, heap, graphs) implemented by hand
+instead of using `std::vector`/`std::unordered_map`/`std::priority_queue`.
 
-This repository contains a student project implemented in modern C++ (C++17). It bundles implementations and demos for classic data structures & algorithms and a compact neural-network training/evaluation pipeline used across three course assignments.
+Layers, loss, metrics, optimizers (SGD / Adagrad / Adam), mini-batch data loading, model
+checkpointing and a topological sorter are all implemented here. The only third-party code is
+[xtensor](https://github.com/xtensor-stack/xtensor) (n-d arrays, `.npy` I/O) and
+[fmt](https://github.com/fmtlib/fmt) (formatting), both vendored in `Code/include/`.
 
-The repo is self-contained: a small ANN library (layers, models, loss, optimizers), dataset loaders, demo programs and a shell-based compilation script. The original assignment briefs are in `Spec/`.
-
----
-
-## Table of Contents
-
-1. Summary
-2. Quick Start
-3. Results & Performance
-4. File-level mapping to assignment requirements
-5. How to build and run (detailed)
-6. Troubleshooting
-7. Project layout (important files)
-8. License
+> Built for the HCMUT *Data Structures & Algorithms* (CO2003) course. The three assignment
+> briefs are in [`Spec/`](Spec/). Author-reported result: near-full marks on the official
+> grading, with the instructor-side unit tests passing.
 
 ---
 
-## 1 — Summary
+## Highlights
 
-### Technical & build
-- **Language:** C++ (C++17 required)
-- **Key libraries:** xtensor (`.npy` I/O, tensor operations), fmt (string formatting), C++ standard library
-- **Build:** `Code/compilation-command.sh` → `Code/program`
+- **Backpropagation by hand.** Every layer implements `forward`/`backward`; gradients are
+  verified against finite differences (see [Verification](#verification)).
+- **Optimizers with parameter groups.** `IOptimizer` owns one `IParamGroup` per layer; groups hold
+  *non-owning* pointers to the layer's weights/gradients, so SGD, Adagrad (RMS-style) and Adam
+  (with bias correction) update parameters in place with no copies.
+- **Ownership-aware containers.** `DLinkedList`, `XArrayList`, `xMap` and `Heap` are class templates
+  that take optional *deleter* callbacks (`freeKey`, `freeValue`, `Heap<T>::free`, …), so the same
+  container works for values and for owning raw pointers, and frees them exactly once.
+- **Hash map = separate chaining over `DLinkedList`**, load factor 0.75, automatic rehash.
+- **Heap with a pluggable comparator** (min-heap by default, max-heap via comparator).
+- **Graphs.** Directed and undirected graphs on an adjacency list, plus a `TopoSorter`
+  (DFS- and BFS-based; Kahn's algorithm for BFS).
+- **Mini-batch loading.** `DataLoader` supports shuffling (optionally seeded), `drop_last`, and range-based `for` over batches.
+- **Checkpoints.** `MLPClassifier::save/load` writes an `arch.txt` plus one `.npy` per weight, bias.
 
-This repository bundles a compact ANN library, dataset loaders, demos and a shell build script; see Section 5 for full build/run details.
+## Results
 
-### Assignments (Assignment-1 / Assignment-2 / Assignment-3)
+Trained with the code in this repository (macOS, Apple clang, `-std=c++17`, no optimisation flags),
+evaluated on the held-out **test split** shipped in `Code/datasets/`:
 
-**Assignment-1 (Foundations):**  
-Core data structure implementations (lists, stacks/queues, heaps, hash maps, sorting, trees) and dataset creation for MLP inference.
+| Task | Model | Optimizer | Epochs | Test accuracy |
+|------|-------|-----------|--------|---------------|
+| 2-class (2-D points) | FC(2→50) – ReLU – FC(50→20) – ReLU – FC(20→2) – Softmax | SGD, lr 2e-3 | 1000 | **99.5 %** |
+| 3-class (2-D points) | same, last layer 20→3 | Adam, lr 1e-3, β = (0.9, 0.99) | 1000 | **99.7 %** |
 
-**Assignment-2 (ANN Training Pipeline):**  
-HashMap and Heap implementations (TASK-1), complete MLP training with layers, loss functions, metrics, three optimizers (SGD/Adagrad/Adam with param groups), DataLoader for batch processing, and checkpoint I/O (TASK-2).
+A model that is saved and loaded back produces identical predictions. Training takes about
+12 s (2-class) to 22 s (3-class) on an Apple-silicon laptop.
 
-**Assignment-3 (Graphs & Computational Graphs):**  
-Graph data structures (directed/undirected via adjacency lists) and topological sorting algorithms (DFS/BFS) for computational graph traversal during backpropagation.
-
----
-
-## 2 — Quick Start
-
-Build and run the default demo (example tested on macOS/Linux). Two options are provided:
-
-Option A — quick (use the included script):
+## Quick start
 
 ```bash
-cd Code
-chmod +x compilation-command.sh
-bash compilation-command.sh
-./program
+git clone https://github.com/BrianTr9/ANN-DSA.git
+cd ANN-DSA/Code
+make run          # builds incrementally, then trains the 2-class demo
 ```
 
-Option B — developer (uses Makefile, incremental build):
+Alternatives: `bash compilation-command.sh && ./program`, or `make OPT=-O2` for an optimised build.
+`make clean` removes the binary and the object files.
 
-```bash
-cd Code
-make run
+> **Run from `Code/`.** The program reads `config.txt` and `datasets/` with relative paths.
+> The 2-class demo **overwrites** the pretrained weights in `Code/models/2c-classification-1/`
+> (and, from the 3-class demo, `3c-classification-1/`). Use `git checkout -- Code/models` to restore them.
+
+Requirements: a C++17 compiler (g++ or clang++) and `make`. Nothing else has to be installed —
+xtensor, xtensor-blas and fmt are vendored. Tested on macOS; it uses only standard C++17.
+
+### Use the library
+
+```cpp
+DSFactory factory("./config.txt");
+auto* datasets = factory.get_datasets_2cc();            // normalised train / valid / test
+DataLoader<double,double> train(datasets->get("train_ds"), 50, /*shuffle=*/true, /*drop_last=*/false);
+DataLoader<double,double> valid(datasets->get("valid_ds"), 50, false, false);
+
+ILayer* layers[] = { new FCLayer(2, 50, true), new ReLU(),
+                     new FCLayer(50, 20, true), new ReLU(),
+                     new FCLayer(20, 2, true),  new Softmax() };
+MLPClassifier model("./config.txt", "2c-classification", layers, 6);   // model owns the layers
+
+SGD optim(2e-3);  CrossEntropy loss;  ClassMetrics metrics(2);
+model.compile(&optim, &loss, &metrics);
+model.fit(&train, &valid, /*epochs=*/1000);
+model.save("./models/2c-classification-1");
+
+xt::xarray<double> probs  = model.predict(X, /*make_decision=*/false);  // class probabilities
+xt::xarray<double> labels = model.predict(X, /*make_decision=*/true);   // argmax class ids
+delete datasets;                                                        // the map owns the datasets
 ```
 
-`make run` builds the binary (incrementally) and runs it from the `Code/` directory.
+Full versions: `Code/include/ann/modelzoo/twoclasses.h` and `threeclasses.h`.
 
-The default demo trains the 2-class classifier under `Code/datasets/2c-classification/` and writes checkpoints to `models/`.
-
----
-
-## 3 — Results & Performance
-
-This project was submitted for official university grading and achieved the following results:
-
--   **Official Grade:** Near-perfect score. The only deduction was a minor penalty for an unused, accidentally included external library that had no impact on the final logic or program correctness.
--   **Third-Party Unit Tests:** Passed 100% of unit tests provided by a third party, validating the correctness and robustness of the data structures and algorithms.
-
----
-
-## 4 — File-level mapping to assignment requirements
-
-Below is a concrete, file-level mapping showing the headers and key source files that implement the required student work. Use these as the authoritative list when preparing deliverables or grading.
-
-### Assignment-1 (Foundations — data structures & algorithms)
-- Lists / ArrayList / Iterators
-  - Code/include/list/DLinkedList.h
-  - Code/include/list/IList.h
-  - Code/include/list/XArrayList.h
-  - Code/include/list/listheader.h
-
-- Stacks / Queues / Deque
-  - Code/include/stacknqueue/Stack.h
-  - Code/include/stacknqueue/Queue.h
-  - Code/include/stacknqueue/IDeck.h
-
-- Heap
-  - Code/include/heap/IHeap.h
-  - Code/include/heap/Heap.h
-  - Code/demo/heap/HeapDemo.h (examples)
-
-- Hash map
-  - Code/include/hash/IMap.h
-  - Code/include/hash/xMap.h
-  - Code/demo/hash/xMapDemo.h (examples)
-
-- Sorting & auxiliary
-  - Code/include/sorting/ISort.h
-  - Code/include/sorting/DLinkedListSE.h
-  - Code/demo/sorting/* (various sort demos)
-
-- Trees
-  - Code/include/tree/IBST.h
-  - Code/include/tree/ITreeWalker.h
-  - Code/demo/tree/* (BST/AVL demos)
-
-### Assignment-2 (Heap/Hash + dataset interfaces)
-- Loader & dataset interfaces
-  - Code/include/loader/dataset.h
-  - Code/include/loader/dataloader.h
-
-- Dataset factory used by ANN (TASK-2 depends on this)
-  - Code/include/ann/dataset/DSFactory.h
-  - Code/src/ann/dataset/DSFactory.cpp
-
-- ANN Training components (TASK-2: Multi-Layer Perceptron)
-  - **Activation Layers (required by spec)**
-    - Code/include/ann/layer/ILayer.h (abstract base)
-    - Code/include/ann/layer/FCLayer.h (fully connected)
-    - Code/include/ann/layer/ReLU.h
-    - Code/include/ann/layer/Sigmoid.h
-    - Code/include/ann/layer/Tanh.h
-    - Code/include/ann/layer/Softmax.h
-
-  - **Loss function**
-    - Code/include/ann/loss/ILossLayer.h
-    - Code/include/ann/loss/CrossEntropy.h
-
-  - **Metrics**
-    - Code/include/ann/metrics/IMetrics.h
-    - Code/include/ann/metrics/ClassMetrics.h
-
-  - **Optimizers with parameter groups (required by spec)**
-    - Code/include/ann/optim/IOptimizer.h (abstract base)
-    - Code/include/ann/optim/IParamGroup.h (abstract base)
-    - Code/include/ann/optim/SGD.h + Code/include/ann/optim/SGDParamGroup.h
-    - Code/include/ann/optim/Adagrad.h + Code/include/ann/optim/AdaParamGroup.h
-    - Code/include/ann/optim/Adam.h + Code/include/ann/optim/AdamParamGroup.h
-
-  - **Model**
-    - Code/include/ann/model/IModel.h (abstract base)
-    - Code/include/ann/model/MLPClassifier.h (multi-layer classifier)
-
-- Config & utilities
-  - Code/include/ann/config/Config.h (hyperparameter management)
-  - Code/include/ann/annheader.h (convenience header including all ANN components)
-  - Code/src/ann/config/Config.cpp (implementation)
-  - Code/src/tensor/xtensor_lib.cpp (tensor utility implementations)
-
-### Assignment-3 (Graphs & topological sorting — TASK-1 / TASK-2)
-- Graph data structures (TASK-1)
-  - Code/include/graph/IGraph.h
-  - Code/include/graph/AbstractGraph.h
-  - Code/include/graph/DGraphModel.h (directed graphs)
-  - Code/include/graph/UGraphModel.h (undirected graphs)
-  - Code/demo/graph/DGraphDemo.h
-  - Code/demo/graph/UGraphDemo.h
-
-- Topological sorting for computational graphs (TASK-2)
-  - Code/include/graph/TopoSorter.h (BFS/DFS sorting for backpropagation)
-  - Implements vertex in-degree tracking and topological ordering
-
-- Demos & examples
-  - Code/src/program.cpp (demo launcher)
-  - Code/demo/graph/DGraphDemo.h (directed graph examples)
-  - Code/demo/graph/UGraphDemo.h (undirected graph examples)
-
-### Implementation Notes
-
-**Scope & Specification Compliance:**
-All implementations strictly follow the assignment specifications. No additional components beyond the spec requirements have been implemented:
-
-- **Assignment-1:** Lists, stacks, queues, heaps, hash maps, sorting, basic trees, and MLP inference components (ReLU + Softmax activation layers).
-- **Assignment-2:** Heap & HashMap (TASK-1) and complete MLP training pipeline (TASK-2), including all three required optimizers (SGD, Adagrad, Adam), four additional activation layers (Sigmoid, Tanh, plus ReLU/Softmax from A1), loss functions (CrossEntropy), and metrics (ClassMetrics). Dataset factory and config management included.
-- **Assignment-3:** Graph data structures (directed/undirected via adjacency lists) and topological sorting (DFS/BFS-based) for computational graph traversal during backpropagation.
-
-**Note on file organization:**  
-The files listed above are the concrete student-facing headers and key source files students were expected to implement or adapt to meet the specifications. The `Code/include/` headers are the primary artifacts for grading — students implement the interfaces and fill the "YOUR CODE HERE/TODO" areas in those headers and corresponding `Code/src/` implementations.
-
----
-
-## 5 — How to build and run (detailed)
-
-### Prerequisites
-
-- **Compiler:** C++17-capable compiler (clang++ or g++)
-- **xtensor:** A vendored subset exists under `Code/include/tensor/xtensor`, or install via package manager/conan/vcpkg
-- **fmt:** Included under `Code/include/sformat`, or install system-wide
-
-### Build options
-
-**Option 1: Using the shell script (recommended)**
-
-```bash
-cd Code
-chmod +x compilation-command.sh
-bash compilation-command.sh
-./program
-```
-
-**Option 2: Using Makefile (incremental, developer-friendly)**
-
-```bash
-cd Code
-make run
-```
-
-**Option 3: Manual compilation with custom flags**
+## Architecture
 
 ```
--std=c++17 -O2 -Iinclude -Wall -Wextra
+Code/include/
+├── list/        IList, XArrayList, DLinkedList (+ forward and backward iterators)
+├── hash/        IMap, xMap   (separate chaining, rehash, deleter callbacks)
+├── heap/        IHeap, Heap  (comparator-driven min/max heap)
+├── stacknqueue/ Stack, Queue (on top of DLinkedList)
+├── graph/       IGraph → AbstractGraph → DGraphModel / UGraphModel, TopoSorter
+├── loader/      Dataset, TensorDataset, DataLoader (range-for over batches)
+└── ann/
+    ├── layer/   ILayer → FCLayer, ReLU, Sigmoid, Tanh, Softmax
+    ├── loss/    ILossLayer → CrossEntropy
+    ├── metrics/ IMetrics → ClassMetrics (accuracy, macro/weighted precision, recall, F1)
+    ├── optim/   IOptimizer → SGD, Adagrad, Adam;  IParamGroup → SGD/Ada/AdamParamGroup
+    ├── model/   IModel → MLPClassifier (compile / fit / evaluate / predict / save / load)
+    ├── dataset/ DSFactory        config/ Config        modelzoo/ ready-made examples
+Code/src/        .cpp files of the ANN library, program.cpp (demo entry point)
+Code/demo/       small usage examples for the data structures
+Code/datasets/   2-class and 3-class point datasets (.npy)
+Code/models/     pretrained checkpoints (arch.txt + .npy weights)
 ```
 
-### Expected output
+Training loop (`IModel::fit`): `zero_grad → forward → loss → backward → optimizer.step`
+per mini-batch, then a validation pass per epoch. `backward` walks the layer list with the
+`DLinkedList` **backward iterator**.
 
-The default demo trains a 2-class classifier using the dataset in `Code/datasets/2c-classification/`. Training progress is logged, and model checkpoints are saved to `models/`.
+`Config` reads simple `key: value` lines (keys are case-insensitive, `#` starts a comment).
+Recognised keys: `model_root`, `ckpt_name`, `arch_file`, `dataset_root`.
 
----
+## Verification
 
-## 6 — Troubleshooting
+- Every layer's gradient (FC with and without bias, 1-D and batched input, ReLU, Sigmoid, Tanh,
+  Softmax, and a full FC–Tanh–FC–Softmax–CrossEntropy network) was checked against central
+  finite differences.
+- Adam and Adagrad were compared against a scalar reference implementation of their update rules.
+- Lists, `xMap`, `Heap`, `Stack`, `Queue` were compared against `std::vector`, `std::map`,
+  `std::multiset`, `std::stack` and `std::queue` on thousands of random operations, and
+  ownership was checked with live-object counters (no leaks, no double frees).
+- The whole suite ran clean under AddressSanitizer and UndefinedBehaviorSanitizer.
 
-**Common issues and solutions:**
+These checks were run as an ad-hoc local suite; **it is not committed to this repository**, so
+there is no `make test` target yet.
 
-- **`std::filesystem` IntelliSense warnings on macOS:** This is commonly an editor/indexer issue; building from terminal with a C++17 compiler usually succeeds. Ensure Xcode Command Line Tools are installed.
+## Scope and limitations
 
-- **`xt::load_npy` exceptions:** Check that `.npy` files exist and are readable under `Code/datasets/*`. Ensure you're running the program from the `Code/` directory where datasets are located.
+- Fully connected MLP classifiers only (no convolution, no GPU). Dense math goes through
+  xtensor / xtensor-blas.
+- Backpropagation is the usual layer-by-layer chain rule; it is **not** a general
+  autodiff graph. `TopoSorter` is an independent, tested graph algorithm that provides the
+  ordering step a computational-graph engine would need — it is not wired into
+  `MLPClassifier`, whose layers form a simple chain.
+- `Code/include/sorting/ISort.h` and `Code/include/tree/*` are interface headers only
+  (provided by the course); sorting algorithms, BST/AVL, a singly linked list and the
+  `DGraphAlgorithm`/`UGraphAlgorithm` demos are **not implemented**, so the corresponding
+  files in `Code/demo/` do not compile on their own.
 
-- **Config file errors:** 
-  - Verify `Code/config.txt` exists and is readable
-  - Check that numeric values (e.g., `learning_rate`) are valid numbers, not strings
-  - Run the binary from the `Code/` directory (not the repo root)
+## Troubleshooting
 
----
+- **`xt::load_npy` exception or "can not open" for the dataset** — run the binary from `Code/`.
+- **Config values ignored** — only the keys listed above are read; unknown keys are harmless.
+- **IntelliSense complains about `std::filesystem`** — editor issue only; the terminal build works.
 
-## 7 — Project layout (important files & directories)
+## Author & license
 
-| Directory | Contents |
-|-----------|----------|
-| `Code/` | Build script, config, compiled binary, demo datasets |
-| `Code/src/` | C++ source implementations (ANN, optimizers, main) |
-| `Code/include/` | Header files (data structures, ANN API, utilities) |
-| `Code/demo/` | Demo programs for various components |
-| `models/` | Checkpoint outputs and trained model weights |
-| `Spec/` | Original assignment specifications (PDF & TXT) |
+**Truong Trung Bao** — HCMUT (VNU-HCM), Computer Science & Engineering ·
+[GitHub @BrianTr9](https://github.com/BrianTr9)
 
----
-
-## 8 — License
-
-This project is released under the MIT License. See the included `LICENSE` file in the repository root for the full text.
-
-SPDX-License-Identifier: MIT
-
----
-
-## 👤 Author
-
-**Truong Trung Bao**  
-Student, Ho Chi Minh City University of Technology (HCMUT — VNU)
-
-- GitHub: [BrianTr9](https://github.com/BrianTr9)
-- University: [Ho Chi Minh City University of Technology (HCMUT)](https://www.hcmut.edu.vn)
-- Data Structures & Algorithms (Semester 2, 2024)
-
+Released under the [MIT License](LICENSE).
