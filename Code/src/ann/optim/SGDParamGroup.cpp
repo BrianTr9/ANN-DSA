@@ -15,12 +15,26 @@
 SGDParamGroup::SGDParamGroup() {
     m_pParams = new xmap<string, xt::xarray<double>*>(&stringHash);
     m_pGrads = new xmap<string, xt::xarray<double>*>(&stringHash);
+    m_pCounter = nullptr; //was uninitialized
 }
 
 SGDParamGroup::SGDParamGroup(const SGDParamGroup& orig) {
+    // The copy refers to the SAME parameters/gradients (they are owned by the layers),
+    // so copy the pointers. (It used to leave m_pParams/m_pGrads uninitialized.)
+    m_pParams = new xmap<string, xt::xarray<double>*>(&stringHash);
+    m_pGrads = new xmap<string, xt::xarray<double>*>(&stringHash);
+    m_pCounter = orig.m_pCounter;
+    DLinkedList<string> keys = orig.m_pParams->keys();
+    for(auto key: keys){
+        m_pParams->put(key, orig.m_pParams->get(key));
+        m_pGrads->put(key, orig.m_pGrads->get(key));
+    }
 }
 
 SGDParamGroup::~SGDParamGroup() {
+    // only the maps are owned here; the tensors belong to the layers
+    if(m_pParams != nullptr) delete m_pParams;
+    if(m_pGrads != nullptr) delete m_pGrads;
 }
 
 void SGDParamGroup::register_param(string param_name, xt::xarray<double>* ptr_param, xt::xarray<double>* ptr_grad){
@@ -38,7 +52,7 @@ void SGDParamGroup::zero_grad(){
         *pGrad = xt::zeros<double>(pParam->shape());
     }
     //reset sample_counter
-    *m_pCounter = 0;
+    if(m_pCounter != nullptr) *m_pCounter = 0;
 }
 
 void SGDParamGroup::step(double lr){

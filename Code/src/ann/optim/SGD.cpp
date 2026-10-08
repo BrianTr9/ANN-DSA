@@ -19,13 +19,15 @@ using namespace std;
 SGD::SGD(double lr):IOptimizer(lr){
 }
 
-SGD::SGD(const SGD& orig) {
+SGD::SGD(const SGD& orig): IOptimizer(orig) { // the learning-rate was dropped (default 1e-4 used)
 }
 
 SGD::~SGD() {
 }
 
 IParamGroup* SGD::create_group(string name){
+    // a group registered twice under the same name would leak: release the old one
+    if(m_pGroupMap->containsKey(name)) delete m_pGroupMap->get(name);
     IParamGroup* pGroup = new SGDParamGroup();
     m_pGroupMap->put(name, pGroup);
     return pGroup;

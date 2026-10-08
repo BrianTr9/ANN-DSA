@@ -17,13 +17,15 @@ Adagrad::Adagrad(double learning_rate, double decay):
     IOptimizer(learning_rate), m_decay(decay){
 }
 
-Adagrad::Adagrad(const Adagrad& orig) {
+Adagrad::Adagrad(const Adagrad& orig): IOptimizer(orig), m_decay(orig.m_decay) { // both were dropped
 }
 
 Adagrad::~Adagrad() {
 }
 
 IParamGroup* Adagrad::create_group(string name){
+    // a group registered twice under the same name would leak: release the old one
+    if(m_pGroupMap->containsKey(name)) delete m_pGroupMap->get(name);
     IParamGroup* pGroup = new AdaParamGroup(m_decay);
     m_pGroupMap->put(name, pGroup);
     return pGroup;

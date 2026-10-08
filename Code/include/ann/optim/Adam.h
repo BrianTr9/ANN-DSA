@@ -23,7 +23,7 @@ public:
     IParamGroup* create_group(string name);
     
 private:
-    double m_learning_rate;
+    // (removed 'double m_learning_rate': it shadowed IOptimizer::m_fLearningRate and was never initialized)
     double m_beta_1, m_beta_2;
 };
 

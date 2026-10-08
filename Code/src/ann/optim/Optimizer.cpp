@@ -25,6 +25,13 @@ m_fLearningRate(learning_rate){
 
 IOptimizer::IOptimizer(const IOptimizer& orig):
 m_fLearningRate(orig.m_fLearningRate){
+    // m_pGroupMap used to stay uninitialized => crash on first use/destruction.
+    // The groups are created per-optimizer by create_group (and are registered by the
+    // layers through compile), so the copy starts with an empty set of groups.
+    m_pGroupMap = new xmap<string, IParamGroup*>(&stringHash,
+            0.75,
+            nullptr,
+            &xmap<string, IParamGroup*>::freeValue);
 }
 
 IOptimizer::~IOptimizer() {

@@ -18,13 +18,16 @@ Adam::Adam(double lr, double beta_1, double beta_2):
 }
 
 Adam::Adam(const Adam& orig):
-    IOptimizer(orig.m_learning_rate), m_beta_1(orig.m_beta_1), m_beta_2(orig.m_beta_2){
+    IOptimizer(orig), m_beta_1(orig.m_beta_1), m_beta_2(orig.m_beta_2){
+    // (it used to read orig.m_learning_rate, a member that was never initialized)
 }
 
 Adam::~Adam() {
 }
 
 IParamGroup* Adam::create_group(string name){
+    // a group registered twice under the same name would leak: release the old one
+    if(m_pGroupMap->containsKey(name)) delete m_pGroupMap->get(name);
     IParamGroup* pGroup = new AdamParamGroup(m_beta_1, m_beta_2);
     m_pGroupMap->put(name, pGroup);
     return pGroup;
