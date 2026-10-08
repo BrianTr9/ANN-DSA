@@ -195,11 +195,15 @@ public:
 
         pNode->prev->next = pNode->next;
         pNode->next->prev = pNode->prev;
-        Node* pPrev = pNode->prev;  
+        // After the removal, the next ++/-- (which moves backward) must reach
+        // the node that preceded the removed one => stand on the following node.
+        Node* pNext = pNode->next;
 
         if (removeItemData != nullptr)
             removeItemData(pNode->data);
 
+        delete pNode;   // the node used to leak
+        pNode = pNext;
         pList->count -= 1;
     }
 
@@ -490,7 +494,7 @@ bool DLinkedList<T>::removeItem(T item, void (*removeItemData)(T))
     if (index == -1) return false;
     Node *pNode = getPreviousNodeOf(index);
     if (removeItemData) removeItemData(pNode->next->data);
-    T data = removeAt(index);
+    removeAt(index);
     return true;
 }
 

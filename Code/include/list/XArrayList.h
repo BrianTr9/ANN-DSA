@@ -199,7 +199,8 @@ void XArrayList<T>::copyFrom(const XArrayList<T> &list)
      * Also duplicates user-defined comparison and deletion functions, if applicable.
      */
     // TODO
-    //removeInternalData();
+    // NOTE: callers (operator=) must release the old buffer first
+    //       by calling removeInternalData(); the constructor has nothing to release.
     this->capacity = list.capacity;
     this->count = list.count;
     this->itemEqual = list.itemEqual;
@@ -241,6 +242,7 @@ XArrayList<T> &XArrayList<T>::operator=(const XArrayList<T> &list)
     // TODO
     if (this != &list)
     {
+        removeInternalData(); // release the old buffer (it used to leak)
         copyFrom(list);
     }
     return *this;
@@ -250,7 +252,7 @@ template <class T>
 XArrayList<T>::~XArrayList()
 {
     // TODO
-    clear();
+    removeInternalData();
 }
 
 template <class T>
@@ -322,8 +324,12 @@ template <class T>
 void XArrayList<T>::clear()
 {
     // TODO
+    // Reset to the initial condition: empty list with the default capacity,
+    // so that the list is still usable (data != nullptr) after clear().
     removeInternalData();
-    capacity = 0;
+    this->capacity = 10;
+    this->count = 0;
+    this->data = new T[this->capacity];
 }
 
 template <class T>
@@ -420,18 +426,19 @@ void XArrayList<T>::ensureCapacity(int index)
     if (index < 0) {
         throw std::out_of_range("Index is out of range!");
     }
-    try {
-        if (index > this->capacity) {
-        this->capacity = index;
-        T* newArray = new T[this->capacity];
+    if (index > this->capacity) {
+        // Grow geometrically (x1.5): growing by 1 element at a time made
+        // n consecutive add() calls cost O(n^2).
+        int newCapacity = this->capacity + (this->capacity >> 1);
+        if (newCapacity < index) newCapacity = index;
+        // std::bad_alloc (if any) propagates to the caller, and the list stays unchanged
+        T* newArray = new T[newCapacity];
         for (int i = 0; i < this->count; ++i) {
             newArray[i] = this->data[i];
         }
         delete[] this->data;
         this->data = newArray;
-        }
-    } catch (std::bad_alloc &e) {
-        throw e;
+        this->capacity = newCapacity;
     }
 }
 
