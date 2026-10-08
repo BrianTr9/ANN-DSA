@@ -231,7 +231,8 @@ template<class T>
 T Heap<T>::pop(){
     //YOUR CODE IS HERE
     if (count == 0) {
-        throw std::underflow_error("Calling to pop with the empty heap.");
+        // The specification (Assignment 2, section 3.3) mandates this exact message for pop().
+        throw std::underflow_error("Calling to peek with the empty heap.");
     }
 
     T root = elements[0];
