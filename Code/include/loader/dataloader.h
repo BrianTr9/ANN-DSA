@@ -38,9 +38,14 @@ public:
                 : ptr_dataset(ptr_dataset), 
                 batch_size(batch_size), 
                 shuffle(shuffle),
+                drop_last(drop_last), //was never stored => uninitialized, behaviour was random
                 m_seed(seed){
+            // batch_size <= 0 would divide by zero below (and loop forever while iterating)
+            if(batch_size <= 0) throw std::invalid_argument("DataLoader: batch_size must be > 0");
             nbatch = ptr_dataset->len()/batch_size;
             item_indices = xt::arange(0, ptr_dataset->len());
+            // seed < 0: do NOT touch the random generator; seed >= 0: reproducible shuffling
+            if(m_seed >= 0) xt::random::seed(m_seed);
     }
     virtual ~DataLoader(){}
     
@@ -56,6 +61,9 @@ public:
     /////////////////////////////////////////////////////////////////////////
 public:
      Iterator begin() {
+        // 'shuffle' used to be accepted but ignored: re-shuffle the sample order
+        // each time a new pass (epoch) over the data starts.
+        if(shuffle) xt::random::shuffle(item_indices);
         return Iterator(this, 0);
     }
 
