@@ -10,11 +10,18 @@ OBJ := obj
 MKDIR := mkdir -p
 RM := rm -rf
 SRCs := $(shell find $(SRC) -name "*.cpp")
-OBJs := $(subst $(SRC), $(OBJ), $(SRCs:.cpp=.o))
+# src/a/b.cpp -> obj/a/b.o  (patsubst: only the leading "src/" and trailing ".cpp" are replaced)
+OBJs := $(patsubst $(SRC)/%.cpp,$(OBJ)/%.o,$(SRCs))
+DEPs := $(OBJs:.o=.d)
 
 CXX := g++ -std=c++17
 CPPFLAGS := -Iinclude -Iinclude/ann -Iinclude/tensor -Iinclude/sformat -Idemo -Isrc
-CFLAGS := -pthread #-Wall
+# -MMD -MP: emit a .d file next to every .o so that editing ANY header
+# (this project is mostly header-only) triggers the rebuild of the affected files.
+DEPFLAGS := -MMD -MP
+# Optional optimisation level, e.g.:  make OPT=-O2
+OPT ?=
+CFLAGS := -pthread $(OPT) #-Wall
 LDLIBS := -lm -lpthread 
 #############################################################################################
 # Note: 
@@ -27,12 +34,14 @@ LDLIBS := -lm -lpthread
 all: $(BIN)
 
 $(BIN): $(OBJs)
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(OBJs) -o $@ $(LDLIBS)
+	$(CXX) $(CFLAGS) $(OBJs) -o $@ $(LDLIBS)
 
-$(OBJs): $(SRCs)
+# Each object file depends only on its own source file (plus the headers listed in its .d file)
+$(OBJ)/%.o: $(SRC)/%.cpp
 	$(MKDIR) $(dir $@)
-	$(CXX) $(CFLAGS) $(CPPFLAGS) -c $(subst $(OBJ), $(SRC), $(@:.o=.cpp)) -o $@
-# Here: repeat here for other other source codes
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
+
+-include $(DEPs)
 
 # Clean rule to remove generated files
 clean:
@@ -40,7 +49,7 @@ clean:
 	$(RM) $(OBJ)
 
 
-.PHONY: run
+.PHONY: all clean run
 run: $(BIN)
 	@echo "Running program..."
 	./$(BIN)
