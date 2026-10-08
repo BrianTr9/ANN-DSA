@@ -130,7 +130,7 @@ public:
     }
    
 };
-ostream &operator<<( ostream &os, const Point& point){
+inline ostream &operator<<( ostream &os, const Point& point){
     os << "P(" << fixed 
             << setw(6) << setprecision(2) << point.x << "," 
             << setw(6) << setprecision(2) << point.y << ","

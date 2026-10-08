@@ -20,6 +20,8 @@
 #include "tensor/xtensor-blas/xlinalg.hpp"
 #include "tensor/xtensor/xrandom.hpp"
 #include <ctime>
+#include <iostream>
+using namespace std;
 
 void demo_1(){
     xt::xarray<double> data = xt::zeros<double>({2, 3});
