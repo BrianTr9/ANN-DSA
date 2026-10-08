@@ -47,6 +47,7 @@ struct Pair{
     Pair& operator=(const Pair& pair){
         this->key = pair.key;
         this->value = pair.value;
+        return *this; // was missing: flowing off the end of a non-void function is UB
     }
 };
 

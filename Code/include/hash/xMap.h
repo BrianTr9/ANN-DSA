@@ -92,11 +92,14 @@ public:
      * sample hash function for keys of types integer and string:
      */
     static int intKeyHash(int& key, int capacity){
-        return key%capacity;
+        // result MUST lie in [0, capacity-1], even for negative keys
+        return ((key % capacity) + capacity) % capacity;
     }
     static int stringKeyHash(string& key, int capacity){
+        // use unsigned char: plain 'char' is negative for non-ASCII bytes,
+        // which produced negative (invalid) table addresses
         long long int sum = 0;
-        for (int idx = 0; idx < key.length(); idx++) sum += key[idx];
+        for (int idx = 0; idx < key.length(); idx++) sum += (unsigned char)key[idx];
         return sum % capacity;
     }
     /*
@@ -108,7 +111,7 @@ public:
      */
     static void freeKey(xMap<K,V> *pMap){
         for(int idx=0; idx < pMap->capacity; idx++){
-            DLinkedList<Entry*> list = pMap->table[idx];
+            DLinkedList<Entry*>& list = pMap->table[idx];
             for(auto pEntry: list){
                 delete pEntry->key;
             }
@@ -123,7 +126,7 @@ public:
      */
     static void freeValue(xMap<K,V> *pMap){
         for(int idx=0; idx < pMap->capacity; idx++){
-            DLinkedList<Entry*> list = pMap->table[idx];
+            DLinkedList<Entry*>& list = pMap->table[idx];
             for(auto pEntry: list){
                 delete pEntry->value;
             }
@@ -144,6 +147,16 @@ protected:
     ////////////////////////////////////////////////////////
     ////////////////////////  UTILITIES ////////////////////
     ////////////////////////////////////////////////////////
+    /*
+     * addressOf(key, tableSize): hashCode wrapped so that the returned address
+     * is always valid, i.e., in [0, tableSize-1], even if the user's hash function
+     * returns a negative value or a value >= tableSize.
+     */
+    int addressOf(K& key, int tableSize){
+        int address = this->hashCode(key, tableSize) % tableSize;
+        if(address < 0) address += tableSize;
+        return address;
+    }
     void ensureLoadFactor(int minCapacity);
     //future version: 
     //  should add a method to trim table shorter when removing key (and value)
@@ -226,6 +239,11 @@ xMap<K,V>::xMap(const xMap<K,V>& map){
     this->loadFactor = map.loadFactor;
     this->valueEqual = map.valueEqual;
     this->keyEqual = map.keyEqual;
+    // The copy only shares (shallow-copies) keys/values with the source map,
+    // so it MUST NOT own them: otherwise they would be freed twice.
+    // (these two members were left uninitialized => garbage function pointers)
+    this->deleteKeys = 0;
+    this->deleteValues = 0;
     
     for(int idx=0; idx < map.capacity; idx++){
         DLinkedList<Entry*>& list = map.table[idx];
@@ -267,8 +285,10 @@ xMap<K,V>& xMap<K,V>::operator=(const xMap<K,V>& map){
 template<class K, class V>
 xMap<K,V>::~xMap(){
     //YOUR CODE IS HERE
-    delete[] table;
-    //removeInternalData();
+    // Frees keys/values (when requested by the user), every Entry and the table.
+    // (it used to be 'delete[] table' only => all entries leaked and
+    //  deleteKeys/deleteValues were never honored)
+    removeInternalData();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -277,7 +297,7 @@ xMap<K,V>::~xMap(){
 
 template<class K, class V>
 V xMap<K,V>::put(K key, V value){
-    int index = this->hashCode(key, capacity);
+    int index = addressOf(key, capacity);
     V retValue = value;
     //YOUR CODE IS HERE    
 
@@ -299,7 +319,7 @@ V xMap<K,V>::put(K key, V value){
 
 template<class K, class V>
 V& xMap<K,V>::get(K key){
-    int index = hashCode(key, capacity);
+    int index = addressOf(key, capacity);
     //V retValue = value;
     //YOUR CODE IS HERE   
     for(auto pEntry: table[index]){
@@ -316,7 +336,7 @@ V& xMap<K,V>::get(K key){
 
 template<class K, class V>
 V xMap<K,V>::remove(K key,void (*deleteKeyInMap)(K)){
-    int index = hashCode(key, capacity);
+    int index = addressOf(key, capacity);
     //V retValue = value;
     //YOUR CODE IS HERE   
     for(auto pEntry: table[index]){
@@ -337,7 +357,7 @@ V xMap<K,V>::remove(K key,void (*deleteKeyInMap)(K)){
 template<class K, class V>
 bool xMap<K,V>::remove(K key, V value, void (*deleteKeyInMap)(K), void (*deleteValueInMap)(V)){
     //YOUR CODE IS HERE   
-    int index = hashCode(key, capacity);
+    int index = addressOf(key, capacity);
     for(auto pEntry: table[index]){
         if(keyEQ(pEntry->key, key) && valueEQ(pEntry->value, value)){
             if (deleteKeyInMap != 0) deleteKeyInMap(pEntry->key);
@@ -354,7 +374,7 @@ bool xMap<K,V>::remove(K key, V value, void (*deleteKeyInMap)(K), void (*deleteV
 template<class K, class V>
 bool xMap<K,V>::containsKey(K key){
     //YOUR CODE IS HERE 
-    int index = hashCode(key, capacity);
+    int index = addressOf(key, capacity);
     for(auto pEntry: table[index]){
         if(keyEQ(pEntry->key, key)){
             return true;
@@ -368,7 +388,7 @@ template<class K, class V>
 bool xMap<K,V>::containsValue(V value){
     //YOUR CODE IS HERE 
     for(int idx=0; idx < capacity; idx++){
-        DLinkedList<Entry*> Dlist = table[idx];
+        DLinkedList<Entry*>& Dlist = table[idx];
         for(auto pEntry: Dlist){
             if(valueEQ(pEntry->value, value)){
                 return true;
@@ -446,7 +466,7 @@ string xMap<K,V>::toString(string (*key2str)(K&), string (*value2str)(V&)){
     os << setw(12) << left << "capacity: "  << capacity << endl;
     os << setw(12) << left << "size: " << count << endl;
     for(int idx=0; idx < capacity; idx++){
-        DLinkedList<Entry*> list = table[idx];
+        DLinkedList<Entry*>& list = table[idx];
         
         os << setw(4) << left << idx << ": ";
         stringstream itemos;
@@ -486,7 +506,7 @@ void xMap<K,V>::moveEntries(
     for(int old_index=0; old_index < oldCapacity; old_index++){
         DLinkedList<Entry*>& oldList= oldTable[old_index];
         for(auto oldEntry: oldList){
-            int new_index = this->hashCode(oldEntry->key, newCapacity);
+            int new_index = addressOf(oldEntry->key, newCapacity);
             DLinkedList<Entry*>& newList = newTable[new_index];
             newList.add(oldEntry);
         }
@@ -507,6 +527,7 @@ void xMap<K,V>::ensureLoadFactor(int current_size){
         int oldCapacity = capacity;
         //int newCapacity = oldCapacity + (oldCapacity >> 1);
         int newCapacity = 1.5*oldCapacity;
+        if(newCapacity <= oldCapacity) newCapacity = oldCapacity + 1; //tiny tables: 1.5x truncates to no growth
         rehash(newCapacity);
     }   
 }
