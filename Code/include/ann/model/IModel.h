@@ -24,6 +24,9 @@ class IModel {
 public:
     IModel(string cfg_filename, string sModelName);
     virtual ~IModel();
+    // IModel owns m_pConfig: copying would delete it twice
+    IModel(const IModel&) = delete;
+    IModel& operator=(const IModel&) = delete;
     
     //for the inference mode:
     /* predict

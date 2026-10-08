@@ -11,6 +11,21 @@ IModel::IModel(string cfg_filename, string sModelName) : m_cfg_filename(cfg_file
 {
     // Create configuration object
     m_pConfig = new Config(cfg_filename);
+
+    // These members used to be left uninitialized (calling fit before compile crashed).
+    m_trainable = false;
+    m_pOptimizer = nullptr;
+    m_pLossLayer = nullptr;
+    m_pMetricLayer = nullptr;
+    m_pTrainLoader = nullptr;
+    m_pValidLoader = nullptr;
+    m_nepoches = 0;
+    m_current_epoch = 0;
+    m_current_batch = 0;
+    m_verbose = 1;
+    m_epoch_loss = 0;
+    m_curent_batch_size = 0;
+    m_sample_counter = 0;
 }
 
 IModel::~IModel()
@@ -24,6 +39,9 @@ void IModel::fit(DataLoader<double, double> *pTrainLoader,
                  unsigned int nepoch,
                  unsigned int verbose)
 {
+    // compile() must have been called: otherwise the pointers below are null
+    if (m_pOptimizer == nullptr || m_pLossLayer == nullptr || m_pMetricLayer == nullptr)
+        throw std::runtime_error("IModel::fit: call compile(optimizer, loss, metrics) before fit");
     //
     on_begin_training(pTrainLoader, pValidLoader, nepoch, verbose);
 
@@ -97,6 +115,8 @@ void IModel::on_begin_epoch()
 }
 void IModel::on_end_epoch()
 {
+    // the validation loader is optional
+    if (m_pValidLoader == nullptr) return;
     cout << "Validation results: " << endl;
     cout << this->evaluate(m_pValidLoader) << endl;
 }

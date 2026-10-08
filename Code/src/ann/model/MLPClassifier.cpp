@@ -44,11 +44,8 @@ MLPClassifier::MLPClassifier(
         m_layers.add(seq[idx]);
 }
 
-MLPClassifier::MLPClassifier(const MLPClassifier &orig) : IModel(orig.m_cfg_filename, orig.m_sModelName)
-{
-    // copy list (in the assignment operator of DLinkedList)
-    m_layers = orig.m_layers;
-}
+// (the copy-constructor is deleted in the header: it used to copy the raw layer pointers
+//  => every copy deleted the same layers in its destructor => double free)
 
 MLPClassifier::~MLPClassifier()
 {
@@ -72,10 +69,13 @@ double_tensor MLPClassifier::predict(double_tensor X, bool make_decision)
     this->set_working_mode(old_mode);
 
     // RETURN
+    // IModel::predict: make_decision = true  => argmax (class index);
+    //                  make_decision = false => probabilities.
+    // The two branches used to be swapped.
     if (make_decision)
-        return Y;
-    else
         return xt::argmax(Y, -1);
+    else
+        return Y;
 }
 
 double_tensor MLPClassifier::predict(
@@ -110,8 +110,11 @@ double_tensor MLPClassifier::predict(
         }
         else
         {
-            results = xt::concatenate(xt::xtuple(results, Y), 0);
-            //results += Y;
+            // 'results' appears on both sides of the (lazy) concatenate expression: assigning it
+            // straight to 'results' overwrote the data while it was being read and produced
+            // zeros/garbage for every loader with more than one batch. Evaluate to a temporary first.
+            double_tensor merged = xt::concatenate(xt::xtuple(results, Y), 0);
+            results = merged;
         }
     }
     cout << "Prediction: End" << endl;
@@ -119,10 +122,11 @@ double_tensor MLPClassifier::predict(
     // restore the old mode
     this->set_working_mode(old_mode);
 
+    // (the two branches used to be swapped, see predict(X, make_decision))
     if (make_decision)
-        return results;
-    else
         return xt::argmax(results, -1);
+    else
+        return results;
 }
 
 double_tensor MLPClassifier::evaluate(DataLoader<double, double> *pLoader)
@@ -219,7 +223,20 @@ bool MLPClassifier::save(string model_path) {
     model_path = trim(model_path);
     if (fs::exists(model_path)) {
       // USE the specified path
-      fs::remove_all(model_path);  // remove all files related
+      if (!fs::is_directory(model_path))
+        throw std::runtime_error(model_path + ": exists but is not a directory");
+      // Remove ONLY the files of a previously saved model (the architecture file and the
+      // *.npy parameter files). The old code did fs::remove_all(model_path), which silently
+      // deleted EVERYTHING in the directory (and the directory itself).
+      string old_arch = m_pConfig->get("arch_file", "arch.txt");
+      vector<fs::path> old_files;
+      for (auto& entry : fs::directory_iterator(model_path)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() == ".npy" ||
+            entry.path().filename() == fs::path(old_arch))
+          old_files.push_back(entry.path());
+      }
+      for (auto& f : old_files) fs::remove(f);
     } else {
       // USE the DEFAULT path
       model_path = m_pConfig->get_new_checkpoint(this->m_sModelName);
@@ -233,8 +250,9 @@ bool MLPClassifier::save(string model_path) {
     ofstream datastream(arch_file);
     if (!datastream.is_open()) {
       cerr << arch_file << ": couldn't open for writing" << endl;
-      throw "Model architecture file '" + arch_file +
-          "': can not open for writing.";
+      // (it used to throw a std::string, which "catch (exception&)" can not catch)
+      throw std::runtime_error("Model architecture file '" + arch_file +
+          "': can not open for writing.");
     }
     // write header
     // write data
@@ -258,6 +276,10 @@ bool MLPClassifier::save(string model_path) {
 }
 
 bool MLPClassifier::load(string model_path, bool use_name_in_file) {
+  // The new layers are built in a temporary list; they replace the current layers only when
+  // the whole architecture file has been read successfully (load used to APPEND to the
+  // existing layers and left a half-built model on failure).
+  DLinkedList<ILayer*> loaded;
   try {
     // verify the existing of model_path
     if (!fs::exists(model_path)) {
@@ -313,16 +335,16 @@ bool MLPClassifier::load(string model_path, bool use_name_in_file) {
         string w_file = model_path + "/" + layer_name + "_W.npy";
         string b_file = model_path + "/" + layer_name + "_b.npy";
         // note:: b_file: may not be used in FCLayer
-        m_layers.add(new FCLayer(trim(second), w_file, b_file, new_name));
+        loaded.add(new FCLayer(trim(second), w_file, b_file, new_name));
       }
       if (layer_type.compare("ReLU") == 0) {
-        m_layers.add(new ReLU(new_name));
+        loaded.add(new ReLU(new_name));
       }
       if (layer_type.compare("Sigmoid") == 0) {
-        m_layers.add(new Sigmoid(new_name));
+        loaded.add(new Sigmoid(new_name));
       }
       if (layer_type.compare("Tanh") == 0) {
-        m_layers.add(new Tanh(new_name));
+        loaded.add(new Tanh(new_name));
       }
       if (layer_type.compare("Softmax") == 0) {
         int nAxis;
@@ -336,14 +358,21 @@ bool MLPClassifier::load(string model_path, bool use_name_in_file) {
           cout << message_2 << endl;
           nAxis = -1;
         }
-        m_layers.add(new Softmax(nAxis, new_name));
+        loaded.add(new Softmax(nAxis, new_name));
       }
     }
 
     // close stream
     datastream.close();
+
+    // replace the current architecture by the loaded one
+    for (auto pLayer : m_layers) delete pLayer;
+    m_layers.clear();
+    for (auto pLayer : loaded) m_layers.add(pLayer);
     return true;
   } catch (exception& e) {
+    // discard the layers built so far (no leak)
+    for (auto pLayer : loaded) delete pLayer;
     cerr << "In MLPClassifier::load(.,.):" << endl;
     cout << e.what() << endl;
     return false;

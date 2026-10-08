@@ -17,6 +17,8 @@ DSFactory::DSFactory(string cfg_filename) {
 }
 
 DSFactory::DSFactory(const DSFactory& orig) {
+    // m_pConfig used to be left uninitialized (=> crash in the destructor): deep copy
+    m_pConfig = new Config(*orig.m_pConfig);
 }
 
 DSFactory::~DSFactory() {

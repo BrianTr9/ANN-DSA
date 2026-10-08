@@ -24,7 +24,10 @@ class MLPClassifier: public IModel {
 public:
     MLPClassifier(string cfg_filename, string sModelName="MLPClassifier");
     MLPClassifier(string cfg_filename, string sModelName, ILayer** seq, int size);
-    MLPClassifier(const MLPClassifier& orig);
+    // The model OWNS raw ILayer pointers: the old copy-constructor copied the pointers
+    // (shallow) and the destructor of each copy then deleted the same layers => double free.
+    MLPClassifier(const MLPClassifier& orig) = delete;
+    MLPClassifier& operator=(const MLPClassifier& orig) = delete;
     ~MLPClassifier();
     
     //for the inference mode:
@@ -46,8 +49,14 @@ public:
     
     void set_working_mode(bool trainable);
     int get_num_classes(){
-        FCLayer* pLayer = (FCLayer*)m_layers.get(m_layers.size() - 2); 
-        return pLayer->getNout();
+        // number of classes = Nout of the LAST fully-connected layer.
+        // (It used to take the layer at size-2, which is only right when the model ends with
+        //  "FC + Softmax"; with another tail it cast a non-FC layer to FCLayer*.)
+        for(auto it = m_layers.bbegin(); it != m_layers.bend(); ++it){
+            if((*it)->get_type() == LayerType::FC)
+                return ((FCLayer*)(*it))->getNout();
+        }
+        return 0;
     };
 
 protected:

@@ -22,7 +22,11 @@ Config::Config(string cfg_filename): m_cfg_filename(cfg_filename) {
 
 
 
-Config::Config(const Config& orig) {
+Config::Config(const Config& orig): m_cfg_filename(orig.m_cfg_filename) {
+    // The copy used to leave m_pMap uninitialized (garbage pointer => crash in the destructor).
+    m_pMap = new xmap<string, string>(&stringHash);
+    DLinkedList<string> keys = orig.m_pMap->keys();
+    for(auto key: keys) m_pMap->put(key, orig.m_pMap->get(key));
 }
 
 Config::~Config() {
@@ -58,7 +62,9 @@ void Config::load_from(string filename){
         istringstream linestream(line);
         string key, value;
         getline(linestream, key, delimiter); //key: maybe an empty string
-        getline(linestream, value, delimiter); //value: maybe an empty string
+        // value = EVERYTHING after the first ':' (a 2nd getline stopped at the next ':' and
+        // truncated values such as "C:/data" or "http://host")
+        getline(linestream, value); //value: maybe an empty string
         key = trim(key); value = trim(value);
         if((key.size() == 0) || (value.size() == 0)) continue;
         
@@ -70,7 +76,8 @@ void Config::load_from(string filename){
 string Config::get(string key, string def_value){
     string value;
     try{
-        value = m_pMap->get(key);
+        // keys are stored in lower case by load_from => look up in lower case too
+        value = m_pMap->get(to_lower(key));
     }
     catch(KeyNotFound& e){
         value = def_value;

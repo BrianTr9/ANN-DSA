@@ -69,6 +69,9 @@ void threeclasses_classification(){
     double_tensor eval_rs1 = pretrained1.evaluate(&test_loader);
     cout << "Load + Eval a pretrained model : " << endl;
     cout << eval_rs1 << endl;
+    
+    //the datasets are owned by the map (freeValue): release it, otherwise they leak
+    delete pMap;
 }
 
 #endif /* THEECLASSES_H */
