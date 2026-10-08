@@ -27,7 +27,11 @@ Softmax::Softmax(int axis, string name) : m_nAxis(axis) {
     m_sName = "Softmax_" + to_string(++m_unLayer_idx);
 }
 
-Softmax::Softmax(const Softmax& orig) {}
+Softmax::Softmax(const Softmax& orig): m_nAxis(orig.m_nAxis) {
+    // (m_nAxis used to stay uninitialized in a copy)
+    m_sName = "Softmax_" + to_string(++m_unLayer_idx);
+    m_aCached_Y = orig.m_aCached_Y;
+}
 
 Softmax::~Softmax() {}
 

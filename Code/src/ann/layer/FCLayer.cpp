@@ -136,7 +136,18 @@ void FCLayer::init_weights(){
 }
 
 FCLayer::FCLayer(const FCLayer& orig) {
+    // The copy used to receive only a new name: sizes, weights, bias... were uninitialized.
     m_sName = "FC_" + to_string(++m_unLayer_idx);
+    m_trainable = orig.m_trainable;
+    m_nNin = orig.m_nNin;
+    m_nNout = orig.m_nNout;
+    m_bUse_Bias = orig.m_bUse_Bias;
+    m_aWeights = orig.m_aWeights;
+    m_aBias = orig.m_aBias;
+    m_aGrad_W = orig.m_aGrad_W;
+    m_aGrad_b = orig.m_aGrad_b;
+    m_aCached_X = orig.m_aCached_X;
+    m_unSample_Counter = orig.m_unSample_Counter;
 }
 
 FCLayer::~FCLayer() {
@@ -163,14 +174,17 @@ xt::xarray<double> FCLayer::forward(xt::xarray<double> X) {
 }
 xt::xarray<double> FCLayer::backward(xt::xarray<double> DY) {
     //YOUR CODE IS HERE
-    m_unSample_Counter+= DY.shape()[0];
+    // a single sample (1-D DY) counts as 1; DY.shape()[0] would be Nout in that case
+    m_unSample_Counter += (DY.dimension() == 1) ? 1 : DY.shape()[0];
 
     //m_aGrad_W = xt::linalg::tensordot(DY,m_aCached_X, {0}, {0});
     //m_aGrad_W = xt::linalg::dot(xt::transpose(m_aCached_X), DY);
 
     xt::xarray<double> DX;
     if (DY.dimension() == 1){
-        m_aGrad_W = xt::linalg::tensordot(DY,m_aCached_X, {0}, {0});
+        // dW = outer(dy, x)  (Nout x Nin). The former tensordot over axis 0 of two vectors
+        // returned a SCALAR (their dot product) instead of the Nout x Nin matrix.
+        m_aGrad_W = xt::linalg::outer(DY, m_aCached_X);
         if (m_bUse_Bias) {
             m_aGrad_b = DY;
         }
@@ -273,7 +287,8 @@ void FCLayer::load(string model_path, string layer_name){
         if(fs::exists(filename_b)){
             m_aBias = xt::load_npy<double>(filename_b);
             if(m_aBias.shape()[0] != m_nNout){
-                throw "Number of values in m_aBias must be the same as Nout.";
+                // throwing a string literal can not be caught by "catch(exception&)" => std::terminate
+                throw std::runtime_error("Number of values in m_aBias must be the same as Nout.");
             }
             m_aGrad_b = xt::zeros<double>({m_nNout});
             m_bUse_Bias = true;
